@@ -11,7 +11,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
  */
 
 // Constants
-const MAX_WAVES = 50
+const MAX_WAVES = 250
 const WAVES = []
 const PREV_MOUSE = { x: 0, y: 0 }
 const MOUSE = { x: 0, y: 0 }
@@ -45,8 +45,8 @@ const sizes = {
  */
 
 const renderTargetResolution = innerWidth > 728
-  ? 256// 1024
-  : 256
+  ? 1024
+  : 512
 
 const renderTarget = new THREE.WebGLRenderTarget(renderTargetResolution, renderTargetResolution)
 renderTarget.texture.type = THREE.HalfFloatType
@@ -84,14 +84,15 @@ scene.add(camera)
  */
 const renderer = new THREE.WebGLRenderer({
   canvas: canvas,
-  antialias: true
+  antialias: true,
+  background: 0xff0000
 })
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.setSize(sizes.width, sizes.height)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 
-window.addEventListener('resize', () => {
+function onResize() {
   // Update sizes
   sizes.width = window.innerWidth
   sizes.height = window.innerHeight
@@ -100,10 +101,28 @@ window.addEventListener('resize', () => {
   // camera.aspect = sizes.width / sizes.height
   // camera.updateProjectionMatrix()
 
+  const textureResolution = textureSize.width / textureSize.height
+  const screenResolution = sizes.width / sizes.height
+  const rX = textureResolution > screenResolution
+    ? screenResolution / textureResolution
+    : 1
+  const rY = textureResolution > screenResolution
+    ? 1
+    : textureResolution / screenResolution
+
+  console.log(textureResolution > screenResolution)
+
+  const resolution = new THREE.Vector2(rX, rY)
+
+  // uniforms update
+  screenPlane.material.uniforms.uResolution.value = resolution
+
   // Update renderer
   renderer.setSize(sizes.width, sizes.height)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-})
+}
+
+window.addEventListener('resize', onResize)
 
 /**
  * Animate
@@ -117,7 +136,10 @@ const createWaves = () => {
       new THREE.PlaneGeometry(100, 100, 1, 1),
       new THREE.MeshBasicMaterial({
         map: new THREE.TextureLoader().load('/brush.png'),
-        transparent: true
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
       })
     )
     mesh.rotation.z = Math.PI * 2 * Math.random()
@@ -142,19 +164,25 @@ const addWave = (x, y, index) => {
   WAVES[index].scale.x = WAVES[index].scale.y = 1
 }
 
-let screenPlane
+let screenPlane, textureSize = { width: 0, height: 0 }
+let texture = new THREE.TextureLoader().load('/ocean.jpeg', tex => {
+  textureSize.width = tex.image.width
+  textureSize.height = tex.image.height
+  onResize()
+})
 
 const addPlane = () => {
   screenPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(sizes.width, sizes.height),
-    new THREE.MeshBasicMaterial({
-      // map: renderTarget.texture,
+    new THREE.ShaderMaterial({
       uniforms: {
-        uImage: { value: new THREE.TextureLoader().load('/ocean.jpeg') },
-        uTexture: { value: renderTarget.texture }
+        uImage: { value: texture },
+        uDisplacement: { value: renderTarget.texture },
+        uResolution: { value: new THREE.Vector2(sizes.width, sizes.height)}
       },
       vertexShader: rippleVertex,
-      fragmentShader: rippleFragment
+      fragmentShader: rippleFragment,
+      transparent: true
     })
   )
 
@@ -177,7 +205,7 @@ const tick = () => {
       wave.scale.x = wave.scale.y = wave.scale.x * 0.98 + 0.1
       wave.material.opacity *= 0.98
 
-      if (wave.material.opacity < 0.01) {
+      if (wave.material.opacity < 0.001) {
         wave.visible = false
       }
     }
